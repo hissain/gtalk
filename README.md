@@ -1,20 +1,16 @@
 # GTalk - Google AI Mode Terminal Query Tool
 
-[![PyPI version](https://badge.fury.io/py/gtalk.svg)](https://badge.fury.io/py/gtalk)
-[![Python Support](https://img.shields.io/pypi/pyversions/gtalk.svg)](https://pypi.org/project/gtalk/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 A powerful command-line interface to interact with Google's AI Mode directly from your terminal. Get AI-powered answers, code examples, and explanations without leaving your command line!
 
-## ✨ Features
+## Features
 
-- 🚀 **Interactive Mode** - Keep querying without restarting
-- 💻 **Code Block Support** - Properly formatted code examples
-- ⚡ **Fast** - Browser session reused across queries
-- 🎯 **Clean Output** - Well-formatted, readable responses
-- 🔄 **Both Modes** - Interactive or single-query mode
+- **Interactive Mode** - Keep querying without restarting
+- **Code Block Support** - Properly formatted code examples
+- **Fast** - Browser session reused across queries
+- **Clean Output** - Well-formatted, readable responses
+- **Both Modes** - Interactive or single-query mode
 
-## 📦 Installation
+## Installation
 
 ### From PyPI (Recommended)
 
@@ -30,30 +26,7 @@ cd gtalk
 pip install -e .
 ```
 
-### Additional Requirements
-
-You'll also need ChromeDriver installed:
-
-**macOS:**
-```bash
-brew install chromedriver
-# If you get a security warning:
-xattr -d com.apple.quarantine $(which chromedriver)
-```
-
-**Linux:**
-```bash
-# Ubuntu/Debian
-sudo apt-get install chromium-chromedriver
-
-# Fedora
-sudo dnf install chromedriver
-```
-
-**Windows:**
-Download from [ChromeDriver Downloads](https://chromedriver.chromium.org/downloads) and add to PATH
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Interactive Mode
 
@@ -76,7 +49,7 @@ Query> quit
 gtalk "What is machine learning?"
 ```
 
-## 📖 Usage Examples
+## Usage Examples
 
 ### Getting Code Examples
 
@@ -111,7 +84,7 @@ Query> Python list comprehension syntax
 Query> Docker commands cheat sheet
 ```
 
-## 🎮 Interactive Commands
+## Interactive Commands
 
 Once in interactive mode:
 
@@ -124,11 +97,11 @@ Once in interactive mode:
 | `Ctrl+C` | Force exit |
 | `Ctrl+D` | Alternative exit |
 
-## ⚙️ Configuration
+## Configuration
 
 GTalk uses headless Chrome by default. The browser session is reused across queries for better performance.
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### CAPTCHA Detected
 
@@ -137,17 +110,6 @@ If you see "Google has detected automated access":
 - Use a VPN or different network
 - Reduce query frequency
 
-### ChromeDriver Not Found
-
-Make sure ChromeDriver is installed and in your PATH:
-```bash
-# Check if chromedriver is available
-which chromedriver
-
-# macOS: Install via Homebrew
-brew install chromedriver
-```
-
 ### No Summary Found
 
 If no AI summary is returned:
@@ -155,14 +117,14 @@ If no AI summary is returned:
 - Use question format: "What is...", "How to...", "Explain..."
 - Some queries may not trigger AI Mode
 
-## 🔒 Privacy & Rate Limiting
+## Privacy & Rate Limiting
 
 - GTalk makes direct requests to Google
 - No data is stored or logged by this tool
 - Respect Google's rate limits - avoid excessive automated queries
 - Consider delays between queries if using programmatically
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
@@ -172,21 +134,21 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## 📝 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This tool is for educational and personal use only. It interacts with Google Search's public interface. Please use responsibly and in accordance with Google's Terms of Service.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Built with [Selenium](https://www.selenium.dev/)
 - Parsing powered by [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/)
 - Inspired by the need for quick terminal-based AI assistance
 
-## 📮 Contact & Support
+## Contact & Support
 
 - **Author**: Md. Sazzad Hissain Khan
 - **Email**: hissain.khan@gmail.com
@@ -195,4 +157,4 @@ This tool is for educational and personal use only. It interacts with Google Sea
 
 ---
 
-Made with ❤️ by [Md. Sazzad Hissain Khan](https://github.com/hissain)
+Made with love by [Md. Sazzad Hissain Khan](https://github.com/hissain)

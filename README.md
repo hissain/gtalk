@@ -31,17 +31,23 @@ pip install -e .
 ### Interactive Mode
 
 Simply run:
+
 ```bash
 gtalk
 ```
 
 Then start asking questions:
+
 ```
-Query> What is Python?
-Query> Write a binary search function
-Query> How do I reverse a string in JavaScript?
+Query> Who is Elon Musk?
+Query> How many children he has?
+Query> Write a python code for printing first 10 Fibonacci numbers?
 Query> quit
 ```
+
+### Demo Terminal
+
+![Demo Terminal](res/Screenshot-Interactive-Mode.png)
 
 ### Single Query Mode
 
@@ -58,6 +64,7 @@ Query> Write a Python function for bubble sort
 ```
 
 Output includes both explanation and code:
+
 ```python
 def bubble_sort(arr):
     n = len(arr)
@@ -88,14 +95,14 @@ Query> Docker commands cheat sheet
 
 Once in interactive mode:
 
-| Command | Description |
-|---------|-------------|
-| `[any text]` | Query Google AI Mode |
-| `help` | Show available commands |
-| `clear` | Clear the screen |
-| `quit`, `exit`, `q` | Exit the program |
-| `Ctrl+C` | Force exit |
-| `Ctrl+D` | Alternative exit |
+| Command                   | Description             |
+| ------------------------- | ----------------------- |
+| `[any text]`            | Query Google AI Mode    |
+| `help`                  | Show available commands |
+| `clear`                 | Clear the screen        |
+| `quit`, `exit`, `q` | Exit the program        |
+| `Ctrl+C`                | Force exit              |
+| `Ctrl+D`                | Alternative exit        |
 
 ## Configuration
 
@@ -106,6 +113,7 @@ GTalk uses headless Chrome by default. The browser session is reused across quer
 ### CAPTCHA Detected
 
 If you see "Google has detected automated access":
+
 - Wait a few minutes between queries
 - Use a VPN or different network
 - Reduce query frequency
@@ -113,6 +121,7 @@ If you see "Google has detected automated access":
 ### No Summary Found
 
 If no AI summary is returned:
+
 - Try rephrasing your query
 - Use question format: "What is...", "How to...", "Explain..."
 - Some queries may not trigger AI Mode

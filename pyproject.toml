@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gtalk"
+version = "0.1.0"
+description = "A command-line interface to interact with Google's AI Mode"
+readme = "README.md"
+authors = [
+    {name = "Md. Sazzad Hissain Khan", email = "hissain.khan@gmail.com"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+keywords = ["google", "ai", "cli", "terminal", "search", "assistant"]
+dependencies = [
+    "selenium>=4.15.0",
+    "beautifulsoup4>=4.12.0",
+]
+requires-python = ">=3.8"
+
+[project.urls]
+Homepage = "https://github.com/hissain/gtalk"
+Documentation = "https://github.com/hissain/gtalk#readme"
+Repository = "https://github.com/hissain/gtalk"
+"Bug Tracker" = "https://github.com/hissain/gtalk/issues"
+
+[project.scripts]
+gtalk = "gtalk.cli:main"

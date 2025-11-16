@@ -19,7 +19,7 @@ A powerful command-line interface to interact with Google's AI Mode directly fro
 pip install gtalk
 ```
 
-### From Source
+### From Source (Latest Features + Bugfixes)
 
 ```bash
 git clone https://github.com/hissain/gtalk.git

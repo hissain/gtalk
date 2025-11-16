@@ -81,35 +81,96 @@ class GoogleAIMode:
             print("Make sure Chrome and ChromeDriver are installed and in PATH")
             sys.exit(1)
 
+    def is_useless_result(self, content):
+        if not content:
+            return True
+        if len(content) == 1 and content[0][0] == 'text':
+            txt = content[0][1].lower()
+            if "top web results" in txt and "exploring this topic" in txt:
+                return True
+        return False
+
     def extract_summary_from_html(self, html):
-        """Extract AI summary from Google's response"""
+        """Extract AI summary from Google's response including tables and lists"""
         soup = BeautifulSoup(html, 'html.parser')
         main_container = soup.select_one('div.mZJni.Dn7Fzd')
         if not main_container:
             return None
 
         result = []
+        processed_elements = set()
 
-        for text_div in main_container.select('div.Y3BBE'):
-            if text_div.find_parent('div', class_='r1PmQe'):
+        # Process all children in order to maintain structure
+        for element in main_container.descendants:
+            if element in processed_elements or not element.name:
                 continue
-            text = text_div.get_text(separator=' ', strip=True)
-            text = re.sub(r'\s+', ' ', text).strip()
-            if text:
-                result.append(('text', text))
 
+            # Skip if inside code container or already processed
+            if element.find_parent('div', class_='r1PmQe') or element.find_parent('table', class_='NRefec') or element.find_parent('ul', class_='KsbFXc'):
+                continue
+
+            # Handle tables
+            if element.name == 'table' and 'NRefec' in element.get('class', []):
+                table_data = []
+                for row in element.select('tr.cZCYO'):
+                    row_data = []
+                    for cell in row.find_all(['th', 'td']):
+                        cell_text = cell.get_text(separator=' ', strip=True)
+                        cell_text = re.sub(r'\s+', ' ', cell_text)
+                        row_data.append(cell_text)
+                    if any(row_data):  # Only add non-empty rows
+                        table_data.append(row_data)
+                
+                if table_data:
+                    result.append(('table', table_data))
+                    processed_elements.add(element)
+                    for desc in element.descendants:
+                        processed_elements.add(desc)
+
+            # Handle lists
+            elif element.name == 'ul' and 'KsbFXc' in element.get('class', []):
+                list_items = []
+                for li in element.select('li'):
+                    li_text = li.get_text(separator=' ', strip=True)
+                    li_text = re.sub(r'\s+', ' ', li_text)
+                    if li_text:
+                        list_items.append(li_text)
+                
+                if list_items:
+                    result.append(('list', list_items))
+                    processed_elements.add(element)
+                    for desc in element.descendants:
+                        processed_elements.add(desc)
+
+            # Handle text divs
+            elif element.name == 'div' and 'Y3BBE' in element.get('class', []):
+                text = element.get_text(separator=' ', strip=True)
+                text = re.sub(r'\s+', ' ', text).strip()
+                if text:
+                    result.append(('text', text))
+                    processed_elements.add(element)
+                    for desc in element.descendants:
+                        processed_elements.add(desc)
+
+        # Handle code blocks separately (they have special structure)
         for code_container in main_container.select('div.r1PmQe'):
+            if code_container in processed_elements:
+                continue
+                
             lang_div = code_container.select_one('div.vVRw1d')
             language = lang_div.get_text(strip=True) if lang_div else ''
             code_elem = code_container.select_one('pre code')
             if code_elem:
                 code = code_elem.get_text()
                 result.append(('code', language, code))
+                processed_elements.add(code_container)
+            
             next_text = code_container.find_next_sibling('div', class_='Y3BBE')
-            if next_text:
+            if next_text and next_text not in processed_elements:
                 label = next_text.get_text(strip=True)
                 if label and len(label) < 50:
                     result.append(('text', label))
+                    processed_elements.add(next_text)
 
         return result if result else None
 
@@ -142,7 +203,7 @@ class GoogleAIMode:
             # URL with English language parameters
             url = f"https://www.google.com/search?udm=50&aep=11&hl=en&lr=lang_en&q={encoded}"
 
-            print("🔍 Searching...")
+            print("🔍 Thinking...")
             self.driver.get(url)
 
             # Platform-specific wait times
@@ -154,11 +215,11 @@ class GoogleAIMode:
             if "captcha" in page_source_lower or "unusual traffic" in page_source_lower:
                 if retry_count < max_retries:
                     wait_time = (retry_count + 1) * self.retry_delay
-                    print(f"⚠️  CAPTCHA detected. Retrying in {wait_time}s... (Attempt {retry_count + 2}/{max_retries + 1})")
+                    #print(f"⚠️  CAPTCHA detected. Retrying in {wait_time}s... (Attempt {retry_count + 2}/{max_retries + 1})")
                     time.sleep(wait_time)
                     return self.query(raw_query, retry_count + 1, max_retries)
                 else:
-                    print("❌ CAPTCHA detected. Max retries reached.")
+                    #print("❌ CAPTCHA detected. Max retries reached.")
                     print("💡 Tip: Wait a few minutes before trying again.\n")
                     return
 
@@ -173,7 +234,18 @@ class GoogleAIMode:
             time.sleep(2)
             html = self.driver.page_source
 
-            content = self.extract_summary_from_html(html)
+            content = self.extract_summary_from_html(html)            
+
+            # Retry if empty or contains the useless preface
+            if self.is_useless_result(content):
+                if retry_count < max_retries:
+                    wait_time = (retry_count + 1) * self.retry_delay
+                    time.sleep(wait_time)
+                    return self.query(raw_query + ", answer it anyway", retry_count + 1, max_retries)
+                else:
+                    print("❌ No valid AI summary after retries.\n")
+                    return
+
 
             if not content:
                 print("❌ No AI summary found.")
@@ -293,17 +365,51 @@ def main():
     finally:
         ai.close()
 
+def cli(argv=None):
+    """CLI entry point for pip console script"""
+    if argv is None:
+        argv = sys.argv[1:]
+
+    ai = GoogleAIMode()
+    try:
+        if argv:
+            ai.init_driver()
+            query_text = " ".join(argv)
+            print(f"Querying: {query_text}\n")
+            ai.query(query_text)
+        else:
+            main()  # fallback interactive mode
+    finally:
+        ai.close()
+
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        # Command-line mode
-        ai = GoogleAIMode()
-        try:
+    # debug: show what the process actually received
+    print("DEBUG: sys.argv =", repr(sys.argv))
+
+    ai = GoogleAIMode()
+    try:
+        # 1) Command-line args
+        if len(sys.argv) > 1:
+            ai.init_driver()
             query_text = " ".join(sys.argv[1:])
             print(f"Querying: {query_text}\n")
             ai.query(query_text)
-        finally:
-            ai.close()
-    else:
-        # Interactive mode
-        main()
+
+        # 2) Non-interactive stdin (e.g. echo "q" | gtalk)
+        elif not sys.stdin.isatty():
+            stdin_text = sys.stdin.read().strip()
+            if stdin_text:
+                ai.init_driver()
+                print(f"Querying from stdin: {stdin_text!r}\n")
+                ai.query(stdin_text)
+            else:
+                print("No stdin input detected - dropping to interactive mode.\n")
+                main()
+
+        # 3) Interactive fallback
+        else:
+            main()
+    finally:
+        ai.close()
+

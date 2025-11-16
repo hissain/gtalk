@@ -12,6 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import urllib.parse
 import re
+import json
 
 
 class GoogleAIMode:
@@ -20,6 +21,8 @@ class GoogleAIMode:
         self.memory = ""
         self.is_windows = platform.system() == "Windows"
         self.retry_delay = 3 if self.is_windows else 2
+        self.first_query = True
+        self.last_query = "" # New: Store the previous raw query
 
     def init_driver(self):
         """Initialize browser with cross-platform optimizations"""
@@ -91,43 +94,27 @@ class GoogleAIMode:
         return False
 
     def extract_summary_from_html(self, html):
-        """Extract AI summary from Google's response including tables and lists"""
+        """Extract AI summary from Google's response."""
         soup = BeautifulSoup(html, 'html.parser')
         main_container = soup.select_one('div.mZJni.Dn7Fzd')
         if not main_container:
             return None
 
         result = []
-        processed_elements = set()
 
-        # Process all children in order to maintain structure
-        for element in main_container.descendants:
-            if element in processed_elements or not element.name:
-                continue
+        # Combined selector for all relevant content types, maintaining document order
+        content_elements = main_container.select('div.r1PmQe, ul.KsbFXc, div.Y3BBE, div.AdPoic, span.T286Pc')
 
-            # Skip if inside code container or already processed
-            if element.find_parent('div', class_='r1PmQe') or element.find_parent('table', class_='NRefec') or element.find_parent('ul', class_='KsbFXc'):
-                continue
-
-            # Handle tables
-            if element.name == 'table' and 'NRefec' in element.get('class', []):
-                table_data = []
-                for row in element.select('tr.cZCYO'):
-                    row_data = []
-                    for cell in row.find_all(['th', 'td']):
-                        cell_text = cell.get_text(separator=' ', strip=True)
-                        cell_text = re.sub(r'\s+', ' ', cell_text)
-                        row_data.append(cell_text)
-                    if any(row_data):  # Only add non-empty rows
-                        table_data.append(row_data)
-                
-                if table_data:
-                    result.append(('table', table_data))
-                    processed_elements.add(element)
-                    for desc in element.descendants:
-                        processed_elements.add(desc)
-
-            # Handle lists
+        for element in content_elements:
+            # Handle code blocks (div with class r1PmQe)
+            if element.name == 'div' and 'r1PmQe' in element.get('class', []):
+                lang_div = element.select_one('div.vVRw1d')
+                language = lang_div.get_text(strip=True) if lang_div else ''
+                code_elem = element.select_one('pre code')
+                if code_elem:
+                    code = code_elem.get_text()
+                    result.append(('code', language, code))
+            # Handle lists (ul with class KsbFXc)
             elif element.name == 'ul' and 'KsbFXc' in element.get('class', []):
                 list_items = []
                 for li in element.select('li'):
@@ -135,42 +122,22 @@ class GoogleAIMode:
                     li_text = re.sub(r'\s+', ' ', li_text)
                     if li_text:
                         list_items.append(li_text)
-                
                 if list_items:
                     result.append(('list', list_items))
-                    processed_elements.add(element)
-                    for desc in element.descendants:
-                        processed_elements.add(desc)
-
-            # Handle text divs
-            elif element.name == 'div' and 'Y3BBE' in element.get('class', []):
+            # Handle text (div.Y3BBE, div.AdPoic, or span.T286Pc)
+            elif (element.name == 'div' and ('Y3BBE' in element.get('class', []) or 'AdPoic' in element.get('class', []))) or \
+                 (element.name == 'span' and 'T286Pc' in element.get('class', []) or 'pWvJNd' in element.get('class', [])):
                 text = element.get_text(separator=' ', strip=True)
                 text = re.sub(r'\s+', ' ', text).strip()
                 if text:
                     result.append(('text', text))
-                    processed_elements.add(element)
-                    for desc in element.descendants:
-                        processed_elements.add(desc)
 
-        # Handle code blocks separately (they have special structure)
-        for code_container in main_container.select('div.r1PmQe'):
-            if code_container in processed_elements:
-                continue
-                
-            lang_div = code_container.select_one('div.vVRw1d')
-            language = lang_div.get_text(strip=True) if lang_div else ''
-            code_elem = code_container.select_one('pre code')
-            if code_elem:
-                code = code_elem.get_text()
-                result.append(('code', language, code))
-                processed_elements.add(code_container)
-            
-            next_text = code_container.find_next_sibling('div', class_='Y3BBE')
-            if next_text and next_text not in processed_elements:
-                label = next_text.get_text(strip=True)
-                if label and len(label) < 50:
-                    result.append(('text', label))
-                    processed_elements.add(next_text)
+        # Fallback: if no specific content was found, get all text from the main container
+        if not result:
+            text = main_container.get_text(separator=' ', strip=True)
+            text = re.sub(r'\s+', ' ', text).strip()
+            if text:
+                result.append(('text', text))
 
         return result if result else None
 
@@ -182,27 +149,146 @@ class GoogleAIMode:
                 return " ".join(words[:100])
         return ""
 
+    def summarize_query(self, text_to_summarize):
+        """Asks Google to summarize the given text within 100 words and updates memory."""
+        # print("📝 Summarizing previous answer for memory...") # Removed log
+        summary_query_text = f"Summarize the following text in 150 words and also, specifically, include what topic it talked about within the summary. Text: {text_to_summarize}."
+        encoded_summary_query = urllib.parse.quote_plus(summary_query_text)
+        summary_url = f"https://www.google.com/search?udm=50&aep=11&hl=en&lr=lang_en&q={encoded_summary_query}"
+
+        try:
+            self.driver.get(summary_url)
+            time.sleep(self.retry_delay) # Give it some time to load
+
+            # Wait for content to load, similar to the main query
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.Y3BBE, div.kCrYT, div.hgKElc"))
+                )
+            except:
+                pass
+            time.sleep(2) # Additional wait
+
+            html = self.driver.page_source
+            summary_content = self.extract_summary_from_html(html)
+
+            if summary_content:
+                # Extract the first paragraph of the summary
+                new_summary = self.extract_first_paragraph_100_words(summary_content)
+                if new_summary:
+                    self.memory = new_summary
+                    # print("✓ Memory updated with 150-word summary.") # Removed log
+                # else:
+                    # print("⚠️ Could not extract summary for memory update.") # Removed log
+            # else:
+                # print("⚠️ No summary found for memory update.") # Removed log
+        except Exception as e:
+            # print(f"❌ Error during summarization for memory: {str(e)}") # Removed log
+            pass # Suppress error for abstraction
+
+    def find_is_relevant_to_previous_information(self, new_query, combined_memory):
+        """Asks Google if the new query is relevant to the current memory, expecting a JSON boolean response."""
+        print("🤔 Analyzing...") # Re-enabled log for debugging
+        relevance_query_text = f"Is the query '{new_query}' relevant to the previous information '{combined_memory}'? Answer in JSON format: {{'relevant': true/false}}"
+        encoded_relevance_query = urllib.parse.quote_plus(relevance_query_text)
+        relevance_url = f"https://www.google.com/search?udm=50&aep=11&hl=en&lr=lang_en&q={encoded_relevance_query}"
+
+        try:
+            self.driver.get(relevance_url)
+            time.sleep(self.retry_delay)
+
+            # Wait for content to load
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.Y3BBE, div.kCrYT, div.hgKElc"))
+                )
+            except:
+                pass
+            time.sleep(2)
+
+            html = self.driver.page_source
+            soup = BeautifulSoup(html, 'html.parser')
+
+            # Attempt to find JSON in preformatted text or script tags
+            json_match = None
+            for pre in soup.find_all('pre'):
+                if 'relevant' in pre.get_text():
+                    json_match = pre.get_text()
+                    break
+            if not json_match:
+                for script in soup.find_all('script', type='application/ld+json'):
+                    if 'relevant' in script.get_text():
+                        json_match = script.get_text()
+                        break
+            if not json_match:
+                # Fallback: try to find it in general text blocks
+                for text_element in soup.select('div.Y3BBE, div.AdPoic, span.T286Pc'):
+                    text = text_element.get_text(separator=' ', strip=True)
+                    if 'relevant' in text and ('true' in text or 'false' in text):
+                        json_match = text
+                        break
+
+            if json_match:
+                # Use regex to extract the JSON object
+                json_str_match = re.search(r'\{[^}]*?"relevant"\s*:\s*(true|false)[^}]*\}', json_match, re.IGNORECASE)
+                if json_str_match:
+                    json_str = json_str_match.group(0)
+                    try:
+                        relevance_data = json.loads(json_str)
+                        is_relevant = relevance_data.get('relevant', False)
+                        # print(f"✓ Relevance check: {'Relevant' if is_relevant else 'Not Relevant'}") # Re-enabled log for debugging
+                        return is_relevant
+                    except json.JSONDecodeError:
+                        pass
+            else:
+                pass
+            return False # Default to not relevant if parsing fails
+        except Exception as e:
+            return False
+
     def query(self, raw_query, retry_count=0, max_retries=2):
         """Execute query with automatic retry on CAPTCHA"""
         try:
             if self.driver is None:
                 self.init_driver()
 
-            # Memory context
-            memory_part = f"Previous summary: {self.memory}. " if self.memory else ""
+            # Store the current raw query as the last query
+            current_raw_query = raw_query
+            
+            if self.first_query:
+                final_query_text = current_raw_query
+                self.first_query = False
+            else:
+                # Memory context now includes both previous query and its summary
+                combined_memory = ""
+                if self.last_query:
+                    combined_memory += f"Previous Query: {self.last_query}. "
+                if self.memory:
+                    combined_memory += f"Previous Answer: {self.memory}. "
 
-            # Instruction to get concise summary first
-            trick = (
-                "Return a summary of your answer in no more than 100 words in the first paragraph, "
-                "then provide the full original answer normally."
-            )
+                # Check relevance before deciding to use memory
+                is_relevant = self.find_is_relevant_to_previous_information(current_raw_query, combined_memory)
 
-            final_query_text = f"{memory_part}{trick} Users query: {raw_query}"
+                if is_relevant:
+                    final_query_text = f"{combined_memory}\n\nNew Query: {current_raw_query}\n\nNote: Answer the new query within one to three paragraphs only, depending on the query, unless it involves code blocks"
+                    # print("✅ Appending context to query.") # Re-enabled log for debugging
+                else:
+                    final_query_text = current_raw_query
+                    self.memory = "" # Clear summary memory if not relevant
+                    self.last_query = "" # Clear previous query memory if not relevant
+                    # print("❌ Query not relevant to previous context. Making a fresh request.") # Re-enabled log for debugging
+            
+            time.sleep(1) # Added a small delay here for stability
+
+            # Update last_query for the next iteration
+            self.last_query = current_raw_query
+
             encoded = urllib.parse.quote_plus(final_query_text)
             
             # URL with English language parameters
             url = f"https://www.google.com/search?udm=50&aep=11&hl=en&lr=lang_en&q={encoded}"
 
+            # print("DEBUG: About to make main search request.") # New debug print
             print("🔍 Thinking...")
             self.driver.get(url)
 
@@ -252,17 +338,14 @@ class GoogleAIMode:
                 print("💡 Google AI Mode might not have generated a response for this query.\n")
                 return
 
-            # Update memory with new summary
-            new_summary = self.extract_first_paragraph_100_words(content)
-            if new_summary:
-                self.memory = new_summary
-
-            # Display results
+            # Display results and collect full text for summarization
             print("\n" + "="*60)
+            full_answer_text = [] # Collect all text for summarization
             for item in content:
                 if item[0] == 'text':
                     print(item[1])
                     print()
+                    full_answer_text.append(item[1])
                 elif item[0] == 'code':
                     language = item[1]
                     code = item[2]
@@ -273,18 +356,36 @@ class GoogleAIMode:
                     print(code.rstrip())
                     print("```")
                     print()
+                    full_answer_text.append(code) # Include code in text for summarization
+                elif item[0] == 'list':
+                    for list_item in item[1]:
+                        print(f"- {list_item}")
+                    print()
+                    full_answer_text.extend(item[1]) # Add list items to text for summarization
+                elif item[0] == 'table':
+                    # simple table formatting
+                    for row in item[1]:
+                        print(" | ".join(row))
+                    print()
+                    full_answer_text.extend([" ".join(row) for row in item[1]]) # Add table rows to text for summarization
             print("="*60 + "\n")
+
+            # Call summarize_query after displaying the answer
+            if full_answer_text:
+                self.summarize_query(" ".join(full_answer_text))
+            # else:
+                # print("⚠️ No content to summarize for memory update.") # Removed log
 
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            print(f"❌ Error: {str(e)}")
+            # print(f"❌ Error: {str(e)}") # Removed log
             if "chrome not reachable" in str(e).lower():
-                print("💡 Browser crashed. Reinitializing...")
+                # print("💡 Browser crashed. Reinitializing...") # Removed log
                 self.driver = None
                 if retry_count < max_retries:
                     return self.query(raw_query, retry_count + 1, max_retries)
-            print()
+            # print() # Removed log
 
     def close(self):
         """Clean up browser resources"""
@@ -353,6 +454,7 @@ def main():
                 continue
             elif q_lower == 'reset':
                 ai.memory = ""
+                ai.first_query = True
                 print("✓ Conversation memory reset.\n")
                 continue
 

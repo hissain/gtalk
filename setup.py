@@ -5,7 +5,10 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="gtalk",
-    version="1.0.7",
+    version="1.0.8",
+    license="MIT",
+    maintainer="Md. Sazzad Hissain Khan",
+    maintainer_email="hissain.khan@gmail.com",
     author="Md. Sazzad Hissain Khan",
     author_email="hissain.khan@gmail.com",
     description="A command-line interface to interact with Google's AI Mode",

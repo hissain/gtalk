@@ -22,7 +22,8 @@ class GoogleAIMode:
         self.is_windows = platform.system() == "Windows"
         self.retry_delay = 3 if self.is_windows else 2
         self.first_query = True
-        self.last_query = "" # New: Store the previous raw query
+        self.last_query = ""
+        self.conversation_history = []  # Store last few exchanges
 
     def init_driver(self):
         """Initialize browser with cross-platform optimizations"""
@@ -34,7 +35,7 @@ class GoogleAIMode:
         
         # Platform-specific configurations
         if self.is_windows:
-            options.add_argument('--headless=new')  # Better for Windows
+            options.add_argument('--headless=new')
         else:
             options.add_argument('--headless')
         
@@ -44,11 +45,11 @@ class GoogleAIMode:
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_argument('--disable-infobars')
         options.add_argument('--disable-extensions')
-        options.add_argument('--disable-gpu')  # Helps with headless stability
+        options.add_argument('--disable-gpu')
         options.add_argument('--lang=en-US')
         options.add_argument('--window-size=1920,1080')
         
-        # User agent (Windows-based for consistency)
+        # User agent
         user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         options.add_argument(f'--user-agent={user_agent}')
         
@@ -72,7 +73,7 @@ class GoogleAIMode:
             self.driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]})")
             self.driver.execute_script("Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']})")
             
-            # Warm-up session to avoid first-request CAPTCHA
+            # Warm-up session
             print("🔄 Warming up session...")
             self.driver.get("https://www.google.com")
             time.sleep(self.retry_delay)
@@ -93,6 +94,15 @@ class GoogleAIMode:
                 return True
         return False
 
+    def contains_code_or_structured_data(self, content):
+        """Check if response contains code blocks, lists, or tables"""
+        if not content:
+            return False
+        for item in content:
+            if item[0] in ['code', 'list', 'table']:
+                return True
+        return False
+
     def extract_summary_from_html(self, html):
         """Extract AI summary from Google's response."""
         soup = BeautifulSoup(html, 'html.parser')
@@ -102,11 +112,11 @@ class GoogleAIMode:
 
         result = []
 
-        # Combined selector for all relevant content types, maintaining document order
+        # Combined selector for all relevant content types
         content_elements = main_container.select('div.r1PmQe, ul.KsbFXc, div.Y3BBE, div.AdPoic, span.T286Pc')
 
         for element in content_elements:
-            # Handle code blocks (div with class r1PmQe)
+            # Handle code blocks
             if element.name == 'div' and 'r1PmQe' in element.get('class', []):
                 lang_div = element.select_one('div.vVRw1d')
                 language = lang_div.get_text(strip=True) if lang_div else ''
@@ -114,7 +124,7 @@ class GoogleAIMode:
                 if code_elem:
                     code = code_elem.get_text()
                     result.append(('code', language, code))
-            # Handle lists (ul with class KsbFXc)
+            # Handle lists
             elif element.name == 'ul' and 'KsbFXc' in element.get('class', []):
                 list_items = []
                 for li in element.select('li'):
@@ -124,7 +134,7 @@ class GoogleAIMode:
                         list_items.append(li_text)
                 if list_items:
                     result.append(('list', list_items))
-            # Handle text (div.Y3BBE, div.AdPoic, or span.T286Pc)
+            # Handle text
             elif (element.name == 'div' and ('Y3BBE' in element.get('class', []) or 'AdPoic' in element.get('class', []))) or \
                  (element.name == 'span' and 'T286Pc' in element.get('class', []) or 'pWvJNd' in element.get('class', [])):
                 text = element.get_text(separator=' ', strip=True)
@@ -132,7 +142,7 @@ class GoogleAIMode:
                 if text:
                     result.append(('text', text))
 
-        # Fallback: if no specific content was found, get all text from the main container
+        # Fallback
         if not result:
             text = main_container.get_text(separator=' ', strip=True)
             text = re.sub(r'\s+', ' ', text).strip()
@@ -150,54 +160,15 @@ class GoogleAIMode:
         return ""
 
     def summarize_query(self, text_to_summarize):
-        """Asks Google to summarize the given text within 100 words and updates memory."""
-        # print("📝 Summarizing previous answer for memory...") # Removed log
+        """Asks Google to summarize the given text within 150 words and updates memory."""
         summary_query_text = f"Summarize the following text in 150 words and also, specifically, include what topic it talked about within the summary. Text: {text_to_summarize}."
         encoded_summary_query = urllib.parse.quote_plus(summary_query_text)
         summary_url = f"https://www.google.com/search?udm=50&aep=11&hl=en&lr=lang_en&q={encoded_summary_query}"
 
         try:
             self.driver.get(summary_url)
-            time.sleep(self.retry_delay) # Give it some time to load
-
-            # Wait for content to load, similar to the main query
-            try:
-                WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.Y3BBE, div.kCrYT, div.hgKElc"))
-                )
-            except:
-                pass
-            time.sleep(2) # Additional wait
-
-            html = self.driver.page_source
-            summary_content = self.extract_summary_from_html(html)
-
-            if summary_content:
-                # Extract the first paragraph of the summary
-                new_summary = self.extract_first_paragraph_100_words(summary_content)
-                if new_summary:
-                    self.memory = new_summary
-                    # print("✓ Memory updated with 150-word summary.") # Removed log
-                # else:
-                    # print("⚠️ Could not extract summary for memory update.") # Removed log
-            # else:
-                # print("⚠️ No summary found for memory update.") # Removed log
-        except Exception as e:
-            # print(f"❌ Error during summarization for memory: {str(e)}") # Removed log
-            pass # Suppress error for abstraction
-
-    def find_is_relevant_to_previous_information(self, new_query, combined_memory):
-        """Asks Google if the new query is relevant to the current memory, expecting a JSON boolean response."""
-        print("🤔 Analyzing...") # Re-enabled log for debugging
-        relevance_query_text = f"Is the query '{new_query}' relevant to the previous information '{combined_memory}'? Answer in JSON format: {{'relevant': true/false}}"
-        encoded_relevance_query = urllib.parse.quote_plus(relevance_query_text)
-        relevance_url = f"https://www.google.com/search?udm=50&aep=11&hl=en&lr=lang_en&q={encoded_relevance_query}"
-
-        try:
-            self.driver.get(relevance_url)
             time.sleep(self.retry_delay)
 
-            # Wait for content to load
             try:
                 WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, "div.Y3BBE, div.kCrYT, div.hgKElc"))
@@ -207,44 +178,105 @@ class GoogleAIMode:
             time.sleep(2)
 
             html = self.driver.page_source
-            soup = BeautifulSoup(html, 'html.parser')
+            summary_content = self.extract_summary_from_html(html)
 
-            # Attempt to find JSON in preformatted text or script tags
-            json_match = None
-            for pre in soup.find_all('pre'):
-                if 'relevant' in pre.get_text():
-                    json_match = pre.get_text()
-                    break
-            if not json_match:
-                for script in soup.find_all('script', type='application/ld+json'):
-                    if 'relevant' in script.get_text():
-                        json_match = script.get_text()
-                        break
-            if not json_match:
-                # Fallback: try to find it in general text blocks
-                for text_element in soup.select('div.Y3BBE, div.AdPoic, span.T286Pc'):
-                    text = text_element.get_text(separator=' ', strip=True)
-                    if 'relevant' in text and ('true' in text or 'false' in text):
-                        json_match = text
-                        break
-
-            if json_match:
-                # Use regex to extract the JSON object
-                json_str_match = re.search(r'\{[^}]*?"relevant"\s*:\s*(true|false)[^}]*\}', json_match, re.IGNORECASE)
-                if json_str_match:
-                    json_str = json_str_match.group(0)
-                    try:
-                        relevance_data = json.loads(json_str)
-                        is_relevant = relevance_data.get('relevant', False)
-                        # print(f"✓ Relevance check: {'Relevant' if is_relevant else 'Not Relevant'}") # Re-enabled log for debugging
-                        return is_relevant
-                    except json.JSONDecodeError:
-                        pass
-            else:
-                pass
-            return False # Default to not relevant if parsing fails
+            if summary_content:
+                new_summary = self.extract_first_paragraph_100_words(summary_content)
+                if new_summary:
+                    self.memory = new_summary
         except Exception as e:
+            pass
+
+    def is_follow_up_query(self, query):
+        """Detect if query is a follow-up using simple heuristics"""
+        query_lower = query.lower().strip()
+        words = query_lower.split()
+        
+        if not words:
             return False
+        
+        # Pronouns that indicate reference to previous context
+        pronouns = ['he', 'she', 'it', 'they', 'them', 'his', 'her', 'their', 'its', 'this', 'that', 'these', 'those', 'you', 'your']
+        
+        # Check if query starts with pronouns
+        first_word = words[0]
+        if first_word in pronouns:
+            return True
+        
+        # Check for common follow-up patterns
+        follow_up_patterns = [
+            'what about', 'how about', 'tell me more', 'more about',
+            'and ', 'also ', 'additionally', 'furthermore', 'moreover',
+            'but ', 'however', 'although', 'though',
+            'what are his', 'what are her', 'what are their', 'what are its',
+            'what is his', 'what is her', 'what is their', 'what is its',
+            'when did he', 'when did she', 'when did they',
+            'where did he', 'where did she', 'where did they',
+            'why did he', 'why did she', 'why did they',
+            'how did he', 'how did she', 'how did they',
+            'i want', 'can you', 'could you', 'please show', 'show me',
+            'give me', 'provide', 'can i get', 'can i see',
+            'you said', 'you mentioned', 'you told', 'you wrote', 'you didn',
+            'where is', 'where\'s', 'what happened to', 'what about the'
+        ]
+        
+        for pattern in follow_up_patterns:
+            if query_lower.startswith(pattern):
+                return True
+        
+        # Check if pronouns appear early in the query
+        if len(words) >= 2:
+            if any(pronoun in words[:4] for pronoun in pronouns):
+                return True
+        
+        # Conversational phrases that indicate follow-up
+        conversational_indicators = [
+            'though', 'but you', 'you didn\'t', 'you said', 'you mentioned',
+            'wait', 'hold on', 'actually', 'instead', 'rather',
+            'the code', 'the program', 'the example', 'the output',
+            'previous', 'earlier', 'before', 'above'
+        ]
+        
+        if any(indicator in query_lower for indicator in conversational_indicators):
+            return True
+        
+        # Short, vague queries are likely follow-ups
+        # e.g., "in python?", "full code", "the code", "example please"
+        if len(words) <= 6:
+            short_follow_up_indicators = [
+                'full', 'complete', 'entire', 'whole', 'example', 'code', 'program',
+                'in ', 'using ', 'with ', 'for ', 'version', 'script',
+                'show', 'give', 'provide', 'send'
+            ]
+            if any(indicator in query_lower for indicator in short_follow_up_indicators):
+                return True
+        
+        return False
+
+    def build_query_prompt(self, raw_query, has_context):
+        """Build intelligent query prompt based on query type and context"""
+        # Detect if query is asking for code, lists, or structured data
+        code_keywords = ['code', 'program', 'script', 'function', 'algorithm', 'implementation', 'example code']
+        list_keywords = ['list', 'steps', 'ways to', 'how to', 'methods', 'tips', 'options', 'alternatives']
+        
+        raw_lower = raw_query.lower()
+        
+        # Check if query explicitly asks for structured content
+        wants_code = any(keyword in raw_lower for keyword in code_keywords)
+        wants_list = any(keyword in raw_lower for keyword in list_keywords)
+        wants_structured = wants_code or wants_list
+        
+        if wants_structured:
+            # Don't add formatting instructions for code/list queries
+            return raw_query
+        else:
+            # For general queries, request paragraph format
+            if has_context:
+                # With context, keep it concise
+                return f"{raw_query}\n\nProvide a clear, concise answer in natural paragraph form (1-3 paragraphs). Avoid bullet points or numbered lists unless absolutely necessary."
+            else:
+                # Without context, allow slightly longer responses
+                return f"{raw_query}\n\nProvide a comprehensive answer in natural paragraph form. Write in flowing prose without using bullet points or numbered lists unless the information absolutely requires structured formatting."
 
     def query(self, raw_query, retry_count=0, max_retries=2):
         """Execute query with automatic retry on CAPTCHA"""
@@ -252,47 +284,45 @@ class GoogleAIMode:
             if self.driver is None:
                 self.init_driver()
 
-            # Store the current raw query as the last query
             current_raw_query = raw_query
             
             if self.first_query:
-                final_query_text = current_raw_query
+                final_query_text = self.build_query_prompt(current_raw_query, has_context=False)
                 self.first_query = False
             else:
-                # Memory context now includes both previous query and its summary
-                combined_memory = ""
-                if self.last_query:
-                    combined_memory += f"Previous Query: {self.last_query}. "
-                if self.memory:
-                    combined_memory += f"Previous Answer: {self.memory}. "
-
-                # Check relevance before deciding to use memory
-                is_relevant = self.find_is_relevant_to_previous_information(current_raw_query, combined_memory)
-
-                if is_relevant:
-                    final_query_text = f"{combined_memory}\n\nNew Query: {current_raw_query}\n\nNote: Answer the new query within one to three paragraphs only, depending on the query, unless it involves code blocks"
-                    # print("✅ Appending context to query.") # Re-enabled log for debugging
+                # Check if this is a follow-up query using simple heuristics
+                is_follow_up = self.is_follow_up_query(current_raw_query)
+                
+                if is_follow_up and (self.conversation_history or self.last_query or self.memory):
+                    print("🤔 Analyzing context...")
+                    # Build richer context from conversation history
+                    context_parts = []
+                    
+                    # Include recent conversation exchanges (last 2-3 for context)
+                    if self.conversation_history:
+                        context_parts.append("Conversation history:")
+                        for i, exchange in enumerate(self.conversation_history[-3:], 1):
+                            context_parts.append(f"User asked: {exchange['query']}")
+                            context_parts.append(f"You answered: {exchange['summary']}")
+                    
+                    combined_context = " ".join(context_parts)
+                    base_query = self.build_query_prompt(current_raw_query, has_context=True)
+                    final_query_text = f"{combined_context}\n\nNow the user asks: {base_query}\n\nRemember to reference the conversation above when answering."
                 else:
-                    final_query_text = current_raw_query
-                    self.memory = "" # Clear summary memory if not relevant
-                    self.last_query = "" # Clear previous query memory if not relevant
-                    # print("❌ Query not relevant to previous context. Making a fresh request.") # Re-enabled log for debugging
+                    # Fresh query - clear memory
+                    final_query_text = self.build_query_prompt(current_raw_query, has_context=False)
+                    self.memory = ""
+                    self.last_query = ""
+                    self.conversation_history = []
             
-            time.sleep(1) # Added a small delay here for stability
-
-            # Update last_query for the next iteration
-            self.last_query = current_raw_query
+            time.sleep(1)
 
             encoded = urllib.parse.quote_plus(final_query_text)
-            
-            # URL with English language parameters
             url = f"https://www.google.com/search?udm=50&aep=11&hl=en&lr=lang_en&q={encoded}"
 
-            # print("DEBUG: About to make main search request.") # New debug print
             print("🔍 Thinking...")
             self.driver.get(url)
 
-            # Platform-specific wait times
             initial_wait = 4 if self.is_windows else 3
             time.sleep(initial_wait)
             
@@ -301,11 +331,9 @@ class GoogleAIMode:
             if "captcha" in page_source_lower or "unusual traffic" in page_source_lower:
                 if retry_count < max_retries:
                     wait_time = (retry_count + 1) * self.retry_delay
-                    #print(f"⚠️  CAPTCHA detected. Retrying in {wait_time}s... (Attempt {retry_count + 2}/{max_retries + 1})")
                     time.sleep(wait_time)
                     return self.query(raw_query, retry_count + 1, max_retries)
                 else:
-                    #print("❌ CAPTCHA detected. Max retries reached.")
                     print("💡 Tip: Wait a few minutes before trying again.\n")
                     return
 
@@ -322,7 +350,7 @@ class GoogleAIMode:
 
             content = self.extract_summary_from_html(html)            
 
-            # Retry if empty or contains the useless preface
+            # Retry if empty or useless
             if self.is_useless_result(content):
                 if retry_count < max_retries:
                     wait_time = (retry_count + 1) * self.retry_delay
@@ -332,15 +360,14 @@ class GoogleAIMode:
                     print("❌ No valid AI summary after retries.\n")
                     return
 
-
             if not content:
                 print("❌ No AI summary found.")
                 print("💡 Google AI Mode might not have generated a response for this query.\n")
                 return
 
-            # Display results and collect full text for summarization
+            # Display results
             print("\n" + "="*60)
-            full_answer_text = [] # Collect all text for summarization
+            full_answer_text = []
             for item in content:
                 if item[0] == 'text':
                     print(item[1])
@@ -356,36 +383,41 @@ class GoogleAIMode:
                     print(code.rstrip())
                     print("```")
                     print()
-                    full_answer_text.append(code) # Include code in text for summarization
+                    full_answer_text.append(code)
                 elif item[0] == 'list':
                     for list_item in item[1]:
                         print(f"- {list_item}")
                     print()
-                    full_answer_text.extend(item[1]) # Add list items to text for summarization
+                    full_answer_text.extend(item[1])
                 elif item[0] == 'table':
-                    # simple table formatting
                     for row in item[1]:
                         print(" | ".join(row))
                     print()
-                    full_answer_text.extend([" ".join(row) for row in item[1]]) # Add table rows to text for summarization
+                    full_answer_text.extend([" ".join(row) for row in item[1]])
             print("="*60 + "\n")
 
-            # Call summarize_query after displaying the answer
+            # Summarize for memory and update history AFTER displaying results
             if full_answer_text:
                 self.summarize_query(" ".join(full_answer_text))
-            # else:
-                # print("⚠️ No content to summarize for memory update.") # Removed log
+                
+                # Update conversation history (keep last 3 exchanges)
+                self.conversation_history.append({
+                    'query': current_raw_query,  # Store the original query
+                    'summary': self.memory
+                })
+                if len(self.conversation_history) > 3:
+                    self.conversation_history.pop(0)
+                
+                # Update last_query for next iteration
+                self.last_query = current_raw_query
 
         except KeyboardInterrupt:
             raise
         except Exception as e:
-            # print(f"❌ Error: {str(e)}") # Removed log
             if "chrome not reachable" in str(e).lower():
-                # print("💡 Browser crashed. Reinitializing...") # Removed log
                 self.driver = None
                 if retry_count < max_retries:
                     return self.query(raw_query, retry_count + 1, max_retries)
-            # print() # Removed log
 
     def close(self):
         """Clean up browser resources"""
@@ -427,7 +459,7 @@ def main():
 
     ai = GoogleAIMode()
     
-    # Pre-initialize browser to avoid first-query issues
+    # Pre-initialize browser
     ai.init_driver()
 
     try:
@@ -455,6 +487,8 @@ def main():
             elif q_lower == 'reset':
                 ai.memory = ""
                 ai.first_query = True
+                ai.last_query = ""
+                ai.conversation_history = []
                 print("✓ Conversation memory reset.\n")
                 continue
 
@@ -480,25 +514,22 @@ def cli(argv=None):
             print(f"Querying: {query_text}\n")
             ai.query(query_text)
         else:
-            main()  # fallback interactive mode
+            main()
     finally:
         ai.close()
 
 
 if __name__ == "__main__":
-    # debug: show what the process actually received
-    print("DEBUG: sys.argv =", repr(sys.argv))
-
     ai = GoogleAIMode()
     try:
-        # 1) Command-line args
+        # Command-line args
         if len(sys.argv) > 1:
             ai.init_driver()
             query_text = " ".join(sys.argv[1:])
             print(f"Querying: {query_text}\n")
             ai.query(query_text)
 
-        # 2) Non-interactive stdin (e.g. echo "q" | gtalk)
+        # Non-interactive stdin
         elif not sys.stdin.isatty():
             stdin_text = sys.stdin.read().strip()
             if stdin_text:
@@ -509,9 +540,8 @@ if __name__ == "__main__":
                 print("No stdin input detected - dropping to interactive mode.\n")
                 main()
 
-        # 3) Interactive fallback
+        # Interactive fallback
         else:
             main()
     finally:
         ai.close()
-

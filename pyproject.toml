@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gtalk"
-version = "1.0.7"
+version = "1.0.8"
 description = "Interactive terminal interface for Google AI Mode - get AI-powered answers, code examples, and explanations directly in your command line"
 readme = "README.md"
 authors = [

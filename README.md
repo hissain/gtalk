@@ -58,11 +58,10 @@ gtalk "What is machine learning?"
 
 ## Command Line Arguments
 
-| Argument                  | Description                                  |
-| ------------------------- | -------------------------------------------- |
-| `-v`, `--verbose`         | Enable verbose output for debugging purposes |
-| `-s`, `--selenium-grid`   | Use Selenium Grid for browser automation     |
-
+| Argument              | Description                                  |
+| --------------------- | -------------------------------------------- |
+| `-v`, `--verbose` | Enable verbose output for debugging purposes |
+| `-s`, `--short`   | Use short query mode                         |
 
 ## Usage Examples
 
